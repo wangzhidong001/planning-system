@@ -3,13 +3,27 @@ from fastapi import FastAPI, Header, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from io import BytesIO
+from contextlib import asynccontextmanager
 import json
 from urllib.parse import quote
 
 from .registry import MODULES, MODULE_BY_CODE, TOP_MODULES, RESERVED_CODES, FIELD_COUNT
 from . import auth, services, seed
 
-app = FastAPI(title="投产规划填报系统 API", version="1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """启动时若库为空则初始化模拟数据（兼容新版 Starlette 已移除的 on_startup）。"""
+    from .database import table, engine
+    from sqlalchemy import func, select
+    with engine.connect() as conn:
+        cnt = conn.execute(select(func.count()).select_from(table("project_list"))).scalar()
+    if cnt == 0:
+        seed.reset_and_seed()
+    yield
+
+
+app = FastAPI(title="投产规划填报系统 API", version="1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 
@@ -189,14 +203,3 @@ def reset_seed(user=Header(None, alias="X-User")):
 @app.get("/api/health")
 def health():
     return {"status": "ok", "modules": len(MODULE_BY_CODE), "fields": FIELD_COUNT}
-
-
-# 启动时若库为空则初始化模拟数据
-@app.on_event("startup")
-def on_startup():
-    from .database import table, engine
-    from sqlalchemy import func, select
-    with engine.connect() as conn:
-        cnt = conn.execute(select(func.count()).select_from(table("project_list"))).scalar()
-    if cnt == 0:
-        seed.reset_and_seed()
