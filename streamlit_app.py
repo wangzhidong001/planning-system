@@ -82,6 +82,15 @@ table.grid tr:hover td{background:#f5f9ff;}
 table.grid th .qmark{color:var(--primary);margin-left:3px;font-size:11px;}
 table.grid th[title]{cursor:help;}
 table.grid th[title]:hover{background:#e6f4ff;color:var(--primary);}
+/* 行内操作表格：表头与数据行均用 st.columns，保证列对齐 */
+div[data-testid="stHorizontalBlock"]:has(.rt-th),div[data-testid="stHorizontalBlock"]:has(.rt-td){gap:0!important;margin-bottom:0!important;}
+.rt-th,.rt-td{background:#fff;font-size:12px;padding:9px 8px;border-bottom:1px solid #f0f0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.rt-th{background:#fafafa;color:#595959;font-weight:600;cursor:help;}
+.rt-th[title]:hover{background:#e6f4ff;color:var(--primary);}
+.rt-td{color:var(--text);}
+.rt-qmark{color:var(--primary);margin-left:2px;}
+.stButton>button[kind="tertiary"]{height:26px!important;min-height:26px!important;padding:0 5px!important;border:none!important;background:transparent!important;color:var(--primary)!important;box-shadow:none!important;font-size:12px!important;}
+.stButton>button[kind="tertiary"]:hover{background:#e6f4ff!important;}
 .tag{display:inline-block;padding:1px 8px;border-radius:4px;font-size:11px;background:#f5f5f5;color:#595959;border:1px solid #e8e8e8;}
 .metrics{display:flex;gap:16px;flex-wrap:wrap;}
 .metric{flex:1;min-width:180px;background:#fff;border-radius:8px;padding:18px;box-shadow:0 1px 2px rgba(0,0,0,.03);}
@@ -407,58 +416,56 @@ if view == "data" and not delete_id:
         st.markdown('<span class="count">共 ' + format(total, ",") + ' 条 · ' + str(len(fields))
                     + ' 个字段（全部展示）</span>', unsafe_allow_html=True)
 
-    headers = []
-    header_titles = []
-    for f in fields:
-        mark = '<span class="qmark">⌕</span>' if f["query"] else ""
-        suffix = " ƒ" if f["type"] == "formula" else ""
-        headers.append(escape(f["name"]) + suffix + mark)
-        tip = (f.get("desc") or "").strip()
-        header_titles.append(tip or (f["name"] + "（暂无字段说明）"))
+    # 行内表格：表头与数据行均用原生 st.columns 保证列对齐；每行末尾为原生 st.button，
+    # 点击走 goto() 局部 rerun，绝不使用 HTML 链接（避免整页刷新/跳登录页）。
+    weights = [0.45] + [1.0] * len(fields) + [0.8, 1.05]
+    header_titles = [(f.get("desc") or "").strip() or (f["name"] + "（暂无字段说明）") for f in fields]
 
-    table_rows = []
-    for r in rows:
-        line = []
-        for f in fields:
-            if f["type"] == "formula":
-                status = r.get("_fs_" + f["key"])
-                v = r.get(f["key"])
-                val = (format_value(v, f["format"]) if status == "OK" and v not in (None, "")
-                       else ("不适用" if status and status != "OK" else ""))
-            else:
-                val = format_value(r.get(f["key"]), f["format"])
-            line.append(escape(str(val)))
-        line.append('<span class="tag">' + escape(str(r.get("_status") or "草稿")) + '</span>')
-        table_rows.append(line)
-    st.markdown('<div class="card" style="padding:0;overflow-x:auto;">'
-                + html_table(headers, table_rows, header_titles) + '</div>', unsafe_allow_html=True)
+    hcols = st.columns(weights)
+    with hcols[0]:
+        st.markdown('<div class="rt-th">序号</div>', unsafe_allow_html=True)
+    for j, f in enumerate(fields):
+        with hcols[j + 1]:
+            mark = '<span class="rt-qmark">⌕</span>' if f["query"] else ""
+            suffix = " ƒ" if f["type"] == "formula" else ""
+            st.markdown('<div class="rt-th" title="' + escape(header_titles[j]) + '">'
+                        + escape(f["name"]) + suffix + mark + '</div>', unsafe_allow_html=True)
+    with hcols[-2]:
+        st.markdown('<div class="rt-th">状态</div>', unsafe_allow_html=True)
+    with hcols[-1]:
+        st.markdown('<div class="rt-th">操作</div>', unsafe_allow_html=True)
 
-    # 行操作区（原生按钮，避免 HTML 链接整页跳转）
-    st.markdown('<div class="card" style="padding:10px 16px;"><span class="sec-title">行操作</span>'
-                '<span class="hint">选择记录后编辑或删除</span></div>', unsafe_allow_html=True)
-    op1, op2, op3 = st.columns([5, 1, 1])
-    with op1:
-        label_map = {str(r["_id"]): ("第 " + str(i) + " 行 · " + str(r.get("_status") or "草稿"))
-                     for i, r in enumerate(rows, 1)}
-        sel = st.selectbox("选择记录", options=[""] + list(label_map.keys()),
-                           format_func=lambda x: (label_map.get(x, x) if x else "请选择…"),
-                           label_visibility="collapsed")
-    with op2:
-        if st.button("编辑", key="op_edit", use_container_width=True):
-            if not sel:
-                st.warning("请先选择记录")
-            elif "edit" in buttons:
-                goto(edit=sel, view="data")
-            else:
-                st.warning("无编辑权限")
-    with op3:
-        if st.button("删除", key="op_del", use_container_width=True):
-            if not sel:
-                st.warning("请先选择记录")
-            elif "delete" in buttons:
-                goto(delete=sel, view="data")
-            else:
-                st.warning("无删除权限")
+    for i, r in enumerate(rows, 1):
+        rid = str(r["_id"])
+        rcols = st.columns(weights)
+        with rcols[0]:
+            st.markdown('<div class="rt-td">' + str(i) + '</div>', unsafe_allow_html=True)
+        for j, f in enumerate(fields):
+            with rcols[j + 1]:
+                if f["type"] == "formula":
+                    status = r.get("_fs_" + f["key"])
+                    v = r.get(f["key"])
+                    val = (format_value(v, f["format"]) if status == "OK" and v not in (None, "")
+                           else ("不适用" if status and status != "OK" else ""))
+                else:
+                    val = format_value(r.get(f["key"]), f["format"])
+                st.markdown('<div class="rt-td" title="' + escape(str(val)) + '">'
+                            + escape(str(val)) + '</div>', unsafe_allow_html=True)
+        with rcols[-2]:
+            st.markdown('<div class="rt-td"><span class="tag">'
+                        + escape(str(r.get("_status") or "草稿")) + '</span></div>', unsafe_allow_html=True)
+        with rcols[-1]:
+            ec, dc = st.columns(2)
+            with ec:
+                if st.button("✎ 编辑", key="row_ed_" + rid, type="tertiary",
+                             help=("编辑第 " + str(i) + " 行") if "edit" in buttons else "无编辑权限",
+                             disabled="edit" not in buttons, use_container_width=True):
+                    goto(edit=rid, view="data", delete=None)
+            with dc:
+                if st.button("🗑 删除", key="row_del_" + rid, type="tertiary",
+                             help=("删除第 " + str(i) + " 行") if "delete" in buttons else "无删除权限",
+                             disabled="delete" not in buttons, use_container_width=True):
+                    goto(delete=rid, view="data", edit=None)
 
     # 分页（原生按钮）
     total_pages = max(1, (total + 19) // 20)
