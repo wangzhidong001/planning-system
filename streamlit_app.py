@@ -80,6 +80,8 @@ table.grid th{background:#fafafa;color:#595959;font-weight:600;text-align:left;p
 table.grid td{padding:10px 12px;border-bottom:1px solid #f5f5f5;color:var(--text);}
 table.grid tr:hover td{background:#f5f9ff;}
 table.grid th .qmark{color:var(--primary);margin-left:3px;font-size:11px;}
+table.grid th[title]{cursor:help;}
+table.grid th[title]:hover{background:#e6f4ff;color:var(--primary);}
 .tag{display:inline-block;padding:1px 8px;border-radius:4px;font-size:11px;background:#f5f5f5;color:#595959;border:1px solid #e8e8e8;}
 .metrics{display:flex;gap:16px;flex-wrap:wrap;}
 .metric{flex:1;min-width:180px;background:#fff;border-radius:8px;padding:18px;box-shadow:0 1px 2px rgba(0,0,0,.03);}
@@ -152,9 +154,16 @@ def render_input(f, current, widget_key):
                          placeholder=(f.get("desc") or "")[:80])
 
 
-def html_table(headers, rows):
-    """Ant Design 风格表格 HTML。rows 为单元格字符串（已转义）二维数组，自动加序号列。"""
-    h = "".join("<th>" + x + "</th>" for x in headers)
+def html_table(headers, rows, header_titles=None):
+    """Ant Design 风格表格 HTML。rows 为单元格字符串（已转义）二维数组，自动加序号列。
+    header_titles 与 headers 一一对应，渲染为 <th title="...">，鼠标悬停显示字段说明。"""
+    titles = header_titles or []
+    ths = []
+    for i, x in enumerate(headers):
+        tip = str(titles[i]) if i < len(titles) and titles[i] else ""
+        attr = ' title="' + escape(tip) + '"' if tip else ""
+        ths.append("<th" + attr + ">" + x + "</th>")
+    h = "".join(ths)
     body = []
     for i, row in enumerate(rows, 1):
         cells = "".join("<td>" + c + "</td>" for c in row)
@@ -399,10 +408,13 @@ if view == "data" and not delete_id:
                     + ' 个字段（全部展示）</span>', unsafe_allow_html=True)
 
     headers = []
+    header_titles = []
     for f in fields:
         mark = '<span class="qmark">⌕</span>' if f["query"] else ""
         suffix = " ƒ" if f["type"] == "formula" else ""
         headers.append(escape(f["name"]) + suffix + mark)
+        tip = (f.get("desc") or "").strip()
+        header_titles.append(tip or (f["name"] + "（暂无字段说明）"))
 
     table_rows = []
     for r in rows:
@@ -419,7 +431,7 @@ if view == "data" and not delete_id:
         line.append('<span class="tag">' + escape(str(r.get("_status") or "草稿")) + '</span>')
         table_rows.append(line)
     st.markdown('<div class="card" style="padding:0;overflow-x:auto;">'
-                + html_table(headers, table_rows) + '</div>', unsafe_allow_html=True)
+                + html_table(headers, table_rows, header_titles) + '</div>', unsafe_allow_html=True)
 
     # 行操作区（原生按钮，避免 HTML 链接整页跳转）
     st.markdown('<div class="card" style="padding:10px 16px;"><span class="sec-title">行操作</span>'
