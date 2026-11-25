@@ -1,8 +1,8 @@
 """投产规划填报系统 · Streamlit 原生版（Ant Design 风格）。
 
 复用同一套 Python 后端：注册表元数据、公式引擎、发号器、权限与导入导出服务。
-界面按 React 版复刻：左侧折叠菜单 + 顶部用户栏 + 卡片查询区 + 工具栏 + 数据表格。
-导航统一走 history.pushState + popstate，避免整页重载白屏。
+导航全部使用原生 st.button + st.query_params（Python 端局部 rerun），
+不使用 HTML <a href> 或 history.pushState，避免整页重载导致 session 丢失回登录页。
 
 部署命令：streamlit run streamlit_app.py --server.port 8501
 """
@@ -34,46 +34,36 @@ from backend.app import auth, registry, services, seed
 from backend.app import database as db
 
 st.set_page_config(page_title="投产规划填报系统", page_icon=None, layout="wide",
-                   initial_sidebar_state="collapsed")
-
-# 内联 SVG 图标（线性风格，对齐 Ant Design）
-SVG = {
-    "md": '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>',
-    "planning": '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
-    "calc": '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
-    "perm": '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>',
-    "dash": '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-}
+                   initial_sidebar_state="expanded")
 
 CSS = """
 <style>
 :root{--primary:#1677ff;--line:#f0f0f0;--text:#262626;--muted:#8c8c8c;}
 .stApp{background:#f5f5f5!important;}
-[data-testid="stHeader"],[data-testid="stSidebar"]{display:none!important;}
-.block-container{padding:68px 24px 40px 224px!important;max-width:none!important;}
-.side{position:fixed;left:0;top:0;width:200px;height:100vh;background:#fff;border-right:1px solid var(--line);z-index:1000;overflow-y:auto;}
-.brand{height:56px;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--line);font-size:15px;font-weight:600;color:var(--text);}
-.brand .logo{width:20px;height:20px;border-radius:4px;background:linear-gradient(135deg,#1677ff,#69c0ff);display:inline-block;flex:none;}
-.group{margin:6px 8px;}
-.group summary{list-style:none;padding:8px 10px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;border-radius:6px;display:flex;align-items:center;gap:8px;}
-.group summary::-webkit-details-marker{display:none;}
-.group summary:hover{background:#f5f5f5;}
-.group summary.on{background:#f5f5f5;}
-.group summary .ico{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:#595959;flex:none;}
-.group summary .arrow{margin-left:auto;color:#bfbfbf;font-size:10px;transition:transform .2s;}
-.group[open] summary .arrow{transform:rotate(90deg);}
-.group .item{display:flex;align-items:center;gap:6px;padding:6px 10px 6px 34px;font-size:12px;color:#595959;text-decoration:none;border-radius:6px;margin:1px 0;}
-.group .item:hover{background:#f5f5f5;color:var(--primary);}
-.group .item.active{background:#e6f4ff;color:var(--primary);font-weight:600;}
-.side-link{display:flex;align-items:center;gap:8px;margin:6px 8px;padding:8px 10px;font-size:13px;font-weight:600;color:var(--text);text-decoration:none;border-radius:6px;}
-.side-link:hover{background:#f5f5f5;}
-.side-link .ico{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:#595959;flex:none;}
+[data-testid="stHeader"]{display:none!important;}
+/* 原生侧栏：定制为 200px 白色菜单 */
+section[data-testid="stSidebar"]{width:200px!important;min-width:200px!important;background:#fff!important;border-right:1px solid var(--line)!important;}
+section[data-testid="stSidebar"] > div:first-child{padding:0!important;}
+[data-testid="stSidebarCollapseButton"],[data-testid="stSidebarCollapsedControl"]{display:none!important;}
+.sb-brand{height:56px;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--line);font-size:15px;font-weight:600;color:var(--text);}
+.sb-brand .logo{width:20px;height:20px;border-radius:4px;background:linear-gradient(135deg,#1677ff,#69c0ff);display:inline-block;flex:none;}
+.sb-group{padding:8px 10px;font-size:13px;font-weight:600;color:var(--text);margin:6px 8px 0;}
+.sb-group .ico{margin-right:6px;}
+.block-container{padding:68px 24px 40px 24px!important;max-width:none!important;}
+/* 侧栏按钮统一样式 */
+section[data-testid="stSidebar"] .stButton{margin:0!important;}
+section[data-testid="stSidebar"] .stButton > button{
+  width:100%!important;height:auto!important;min-height:32px!important;border:none!important;
+  background:transparent!important;color:#595959!important;box-shadow:none!important;
+  font-size:12px!important;text-align:left!important;padding:7px 10px 7px 30px!important;
+  border-radius:6px!important;font-weight:400!important;
+}
+section[data-testid="stSidebar"] .stButton > button:hover{background:#f5f5f5!important;color:var(--primary)!important;}
+section[data-testid="stSidebar"] .stButton > button[kind="primary"]{background:#e6f4ff!important;color:var(--primary)!important;font-weight:600!important;}
 .topbar{position:fixed;left:200px;right:0;top:0;height:56px;background:#fff;border-bottom:1px solid var(--line);z-index:999;display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:0 24px;}
 .role-badge{background:#e6f4ff;color:var(--primary);padding:3px 10px;border-radius:4px;font-size:12px;}
 .avatar{width:28px;height:28px;border-radius:50%;background:#f0f0f0;display:flex;align-items:center;justify-content:center;color:#8c8c8c;font-size:13px;}
 .username{font-size:13px;color:var(--text);}
-.nav{font-size:12px;color:var(--muted);text-decoration:none;margin-left:6px;}
-.nav:hover{color:var(--primary);}
 .card{background:#fff;border-radius:8px;padding:16px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.03);}
 .sec-title{font-size:14px;font-weight:600;color:var(--text);}
 .hint{font-size:12px;color:var(--muted);margin-left:8px;font-weight:400;}
@@ -91,18 +81,11 @@ table.grid td{padding:10px 12px;border-bottom:1px solid #f5f5f5;color:var(--text
 table.grid tr:hover td{background:#f5f9ff;}
 table.grid th .qmark{color:var(--primary);margin-left:3px;font-size:11px;}
 .tag{display:inline-block;padding:1px 8px;border-radius:4px;font-size:11px;background:#f5f5f5;color:#595959;border:1px solid #e8e8e8;}
-.nav-btn{font-size:12px;text-decoration:none;margin-right:10px;}
-.nav-btn-edit{color:var(--primary);}
-.nav-btn-del{color:#ff4d4f;}
-.pager{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-top:12px;}
-.pager a{padding:4px 10px;border:1px solid #d9d9d9;border-radius:6px;color:var(--text);text-decoration:none;background:#fff;}
-.pager a.cur{background:var(--primary);border-color:var(--primary);color:#fff;}
-.pager a.disabled{opacity:.45;pointer-events:none;}
 .metrics{display:flex;gap:16px;flex-wrap:wrap;}
 .metric{flex:1;min-width:180px;background:#fff;border-radius:8px;padding:18px;box-shadow:0 1px 2px rgba(0,0,0,.03);}
 .metric .mlabel{font-size:12px;color:var(--muted);}
 .metric .mval{font-size:26px;font-weight:600;color:var(--text);margin-top:6px;}
-.tagchip{display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;background:#e6f4ff;color:var(--primary);margin:0 6px 6px 0;text-decoration:none;}
+.tagchip{display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;background:#e6f4ff;color:var(--primary);margin:0 6px 6px 0;}
 .tagchip.grey{background:#f5f5f5;color:#8c8c8c;}
 </style>
 """
@@ -110,17 +93,14 @@ table.grid th .qmark{color:var(--primary);margin-left:3px;font-size:11px;}
 st.markdown(CSS, unsafe_allow_html=True)
 QP = st.query_params
 
-# 所有站内导航统一走 pushState + popstate，触发 Streamlit 局部 rerun，避免整页白屏
-_NAV_JS = ("event.preventDefault();history.pushState({},'',this.getAttribute('href'));"
-           "window.dispatchEvent(new PopStateEvent('popstate'));return false;")
-
-
-def nav_link(label, href, cls=""):
-    return ('<a class="' + cls + '" href="' + href + '" onclick="' + _NAV_JS + '">'
-            + label + '</a>')
+# 图标（Streamlit button icon 用 emoji / material 符号）
+ICON = {
+    "md": "🗄", "planning": "✎", "calc": "▦", "perm": "🛡", "dash": "◷",
+}
 
 
 def goto(**kwargs):
+    """用官方 query_params API 跳转：Python 端触发局部 rerun，不操作浏览器 URL。"""
     for k, v in kwargs.items():
         if v is None:
             QP.pop(k, None)
@@ -183,14 +163,12 @@ def html_table(headers, rows):
 
 
 # ---------- 登录 ----------
-if QP.get("logout") == "1":
-    st.session_state.user = None
-    QP.pop("logout", None)
-    st.rerun()
-
 if st.session_state.get("user") is None:
+    # 登录页隐藏侧栏
+    st.markdown('<style>section[data-testid="stSidebar"]{display:none!important;}</style>',
+                unsafe_allow_html=True)
     st.markdown('<div class="card" style="max-width:760px;margin:48px auto 8px;">'
-                '<div class="brand" style="border:none;padding:0 0 12px 0;">'
+                '<div class="sb-brand" style="border:none;padding:0 0 12px 0;">'
                 '<span class="logo"></span>投产规划填报系统</div>'
                 '<div class="sec-title">登录</div></div>', unsafe_allow_html=True)
     _, mid, _ = st.columns([1, 2, 1])
@@ -220,11 +198,11 @@ for top in registry.TOP_MODULES:
         code = child["code"]
         if code in registry.MODULE_BY_CODE and not auth.can_access_module(role, code):
             continue
-        children.append((code, child["name"], top.get("code", "")))
+        children.append((code, child["name"]))
     if children:
         nav.append((top["name"], children, top.get("code", "")))
 
-codes = [c for _, cs, _ in nav for c, _, _ in cs]
+codes = [c for _, cs, _ in nav for c, _ in cs]
 module_code = QP.get("module") or codes[0]
 if module_code not in codes:
     module_code = codes[0]
@@ -236,47 +214,48 @@ try:
 except ValueError:
     page = 1
 
-# 当前模块所属分组
 current_group = ""
 for _, cs, g in nav:
-    if any(c == module_code for c, _, _ in cs):
+    if any(c == module_code for c, _ in cs):
         current_group = g
         break
 is_special = view in ("dashboard", "perm")
 
-# 左侧菜单（分组可折叠 + 独立项，对齐 React 版）
-side = ['<div class="side"><div class="brand"><span class="logo"></span>投产规划填报系统</div>']
-for top_name, children, gcode in nav:
-    opened = (gcode == current_group and not is_special)
-    side.append('<details class="group"' + (' open' if opened else '') + '><summary class="'
-                + ('on' if opened else '') + '"><span class="ico">' + SVG.get(gcode, SVG["calc"])
-                + '</span>' + escape(top_name) + '<span class="arrow">▶</span></summary>')
-    for code, name, _ in children:
-        active = (code == module_code and not is_special)
-        side.append(nav_link('<span class="item' + (' active' if active else '') + '">'
-                             + escape(name) + '</span>',
-                             '?module=' + code + '&view=data'))
-    side.append('</details>')
-side.append(nav_link('<span class="side-link"><span class="ico">' + SVG["dash"]
-                     + '</span>工作台</span>', '?view=dashboard&module=' + module_code))
-side.append(nav_link('<span class="side-link"><span class="ico">' + SVG["perm"]
-                     + '</span>权限管理</span>', '?view=perm&module=' + module_code))
-side.append('</div>')
-st.markdown("".join(side), unsafe_allow_html=True)
+# ---------- 左侧菜单（原生 sidebar + 原生按钮，保证局部 rerun）----------
+with st.sidebar:
+    st.markdown('<div class="sb-brand"><span class="logo"></span>投产规划填报系统</div>',
+                unsafe_allow_html=True)
+    for top_name, children, gcode in nav:
+        st.markdown('<div class="sb-group">' + ICON.get(gcode, "▦") + ' '
+                    + escape(top_name) + '</div>', unsafe_allow_html=True)
+        for code, name in children:
+            active = (code == module_code and not is_special)
+            if st.button(name, key="nav_" + code, type="primary" if active else "secondary",
+                         use_container_width=True):
+                goto(module=code, view="data", edit=None, delete=None, page=None)
+    st.markdown('<div class="sb-group">快捷入口</div>', unsafe_allow_html=True)
+    if st.button(ICON["dash"] + " 工作台", key="nav_dash",
+                 type="primary" if view == "dashboard" else "secondary", use_container_width=True):
+        goto(view="dashboard", edit=None, delete=None)
+    if st.button(ICON["perm"] + " 权限管理", key="nav_perm",
+                 type="primary" if view == "perm" else "secondary", use_container_width=True):
+        goto(view="perm", edit=None, delete=None)
+    st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+    if st.button("退出登录", key="nav_logout", use_container_width=True):
+        st.session_state.user = None
+        st.rerun()
 
 initial = user["name"][:1]
 perm = " / ".join(buttons)
 st.markdown('<div class="topbar"><span class="role-badge">' + escape(role_name) + '</span>'
             '<span class="avatar">' + escape(initial) + '</span>'
-            '<span class="username">' + escape(user["name"]) + '</span>'
-            + nav_link('退出', '?logout=1&module=' + module_code, 'nav') + '</div>',
+            '<span class="username">' + escape(user["name"]) + '</span></div>',
             unsafe_allow_html=True)
 
 # ---------- 工作台 ----------
 if view == "dashboard":
     md = sum(len(cs) for _, cs, g in nav if g == "md")
     plan = sum(len(cs) for _, cs, g in nav if g == "planning")
-    calc = sum(len(cs) for _, cs, g in nav if g == "calc")
     st.markdown('<div class="card"><div class="sec-title">工作台</div>'
                 '<span class="hint">欢迎，' + escape(user["name"]) + '（' + escape(role_name)
                 + '）｜ 系统依据飞书《各模块字段定义》构建，当前已落地 ' + str(registry.FIELD_COUNT)
@@ -294,12 +273,14 @@ if view == "dashboard":
     st.markdown('<div class="card" style="margin-top:16px;"><div class="sec-title">模块导航</div></div>',
                 unsafe_allow_html=True)
     for top_name, children, gcode in nav:
-        chips = "".join(nav_link(escape(name), '?module=' + code + '&view=data', 'tagchip')
-                        for code, name, _ in children)
-        st.markdown('<div style="margin:0 16px 12px;font-size:13px;font-weight:600;">'
-                    + SVG.get(gcode, SVG["calc"]) + ' ' + escape(top_name) + '</div>'
-                    '<div style="margin:0 16px 12px;">' + chips + '</div>',
+        st.markdown('<div style="margin:0 16px 6px;font-size:13px;font-weight:600;">'
+                    + ICON.get(gcode, "▦") + ' ' + escape(top_name) + '</div>',
                     unsafe_allow_html=True)
+        ncols = st.columns(4)
+        for i, (code, name) in enumerate(children):
+            with ncols[i % 4]:
+                if st.button(name, key="db_" + code, use_container_width=True):
+                    goto(module=code, view="data", edit=None, delete=None, page=None)
     st.stop()
 
 # ---------- 权限管理 ----------
@@ -316,8 +297,7 @@ if view == "perm":
         ["BG 负责人", "本 BG 数据查看与填报"],
         ["核算会计", "字段查看、凭证相关校验"],
     ]
-    st.markdown('<div class="card"><div class="sec-title">角色定义</div></div>',
-                unsafe_allow_html=True)
+    st.markdown('<div class="card"><div class="sec-title">角色定义</div></div>', unsafe_allow_html=True)
     st.markdown('<div class="card" style="padding:0;overflow-x:auto;">'
                 + html_table(["角色", "职责"], [[escape(a), escape(b)] for a, b in role_rows])
                 + '</div>', unsafe_allow_html=True)
@@ -361,11 +341,7 @@ if delete_id:
 queries = {}
 query_fields = [f for f in fields if f["query"]]
 if view == "data" and not delete_id:
-    st.markdown('<div class="card"><span class="sec-title">查询条件</span>'
-                '<span class="hint">支持模糊查询，多字段同时填写为「且」关系</span>'
-                + nav_link('字段定义', '?module=' + module_code + '&view=fields', 'nav')
-                + '</div>', unsafe_allow_html=True)
-    qcols = st.columns(min(3, len(query_fields)) + 1)
+    qcols = st.columns(min(3, len(query_fields)) + 2)
     for i, f in enumerate(query_fields):
         with qcols[i % len(qcols)]:
             qkey = "q_" + module_code + "_" + f["key"]
@@ -375,11 +351,14 @@ if view == "data" and not delete_id:
                                 help=(f.get("desc") or f["name"]), key=qkey)
             if val and val.strip():
                 queries[f["key"]] = val.strip()
-    with qcols[-1]:
+    with qcols[-2]:
         if st.button("重置查询"):
             for f in query_fields:
                 st.session_state["q_" + module_code + "_" + f["key"]] = ""
             goto(page=None)
+    with qcols[-1]:
+        if st.button("字段定义", key="btn_fields"):
+            goto(view="fields", edit=None, delete=None)
 
 # ---------- 数据列表 ----------
 if view == "data" and not delete_id:
@@ -389,33 +368,33 @@ if view == "data" and not delete_id:
     rows = result["rows"]
     total = result["total"]
 
-    t1, t2, t3, t4, t5, t6 = st.columns([0.9, 0.9, 0.9, 0.9, 1.15, 8])
-    with t1:
+    b1, b2, b3, b4, b5, b6 = st.columns([0.9, 0.9, 0.9, 0.9, 1.15, 8])
+    with b1:
         if st.button("刷新"):
             st.rerun()
-    with t2:
+    with b2:
         if st.button("新增", type="primary"):
             if "create" in buttons:
-                goto(view="new")
+                goto(view="new", edit=None, delete=None)
             else:
                 st.warning("无新增权限")
-    with t3:
+    with b3:
         if st.button("导入"):
             if "import" in buttons:
-                goto(view="import")
+                goto(view="import", edit=None, delete=None)
             else:
                 st.warning("无导入权限")
-    with t4:
+    with b4:
         buf = services.export_excel(module_code)
         st.download_button("导出", data=buf.getvalue(), file_name=module["name"] + ".xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            disabled="export" not in buttons)
-    with t5:
+    with b5:
         tpl = services.download_template(module_code)
         st.download_button("下载模板", data=tpl.getvalue(), file_name=module["name"] + "-导入模板.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            disabled="import" not in buttons)
-    with t6:
+    with b6:
         st.markdown('<span class="count">共 ' + format(total, ",") + ' 条 · ' + str(len(fields))
                     + ' 个字段（全部展示）</span>', unsafe_allow_html=True)
 
@@ -424,7 +403,7 @@ if view == "data" and not delete_id:
         mark = '<span class="qmark">⌕</span>' if f["query"] else ""
         suffix = " ƒ" if f["type"] == "formula" else ""
         headers.append(escape(f["name"]) + suffix + mark)
-    headers += ["状态", "操作"]
+
     table_rows = []
     for r in rows:
         line = []
@@ -438,29 +417,54 @@ if view == "data" and not delete_id:
                 val = format_value(r.get(f["key"]), f["format"])
             line.append(escape(str(val)))
         line.append('<span class="tag">' + escape(str(r.get("_status") or "草稿")) + '</span>')
-        acts = []
-        if "edit" in buttons:
-            acts.append(nav_link('编辑', '?module=' + module_code + '&edit=' + str(r["_id"]),
-                                 'nav-btn nav-btn-edit'))
-        if "delete" in buttons:
-            acts.append(nav_link('删除', '?module=' + module_code + '&delete=' + str(r["_id"]),
-                                 'nav-btn nav-btn-del'))
-        line.append("".join(acts) or "-")
         table_rows.append(line)
     st.markdown('<div class="card" style="padding:0;overflow-x:auto;">'
                 + html_table(headers, table_rows) + '</div>', unsafe_allow_html=True)
 
+    # 行操作区（原生按钮，避免 HTML 链接整页跳转）
+    st.markdown('<div class="card" style="padding:10px 16px;"><span class="sec-title">行操作</span>'
+                '<span class="hint">选择记录后编辑或删除</span></div>', unsafe_allow_html=True)
+    op1, op2, op3 = st.columns([5, 1, 1])
+    with op1:
+        label_map = {str(r["_id"]): ("第 " + str(i) + " 行 · " + str(r.get("_status") or "草稿"))
+                     for i, r in enumerate(rows, 1)}
+        sel = st.selectbox("选择记录", options=[""] + list(label_map.keys()),
+                           format_func=lambda x: (label_map.get(x, x) if x else "请选择…"),
+                           label_visibility="collapsed")
+    with op2:
+        if st.button("编辑", key="op_edit", use_container_width=True):
+            if not sel:
+                st.warning("请先选择记录")
+            elif "edit" in buttons:
+                goto(edit=sel, view="data")
+            else:
+                st.warning("无编辑权限")
+    with op3:
+        if st.button("删除", key="op_del", use_container_width=True):
+            if not sel:
+                st.warning("请先选择记录")
+            elif "delete" in buttons:
+                goto(delete=sel, view="data")
+            else:
+                st.warning("无删除权限")
+
+    # 分页（原生按钮）
     total_pages = max(1, (total + 19) // 20)
-    prev_cls = "disabled" if page <= 1 else ""
-    next_cls = "disabled" if page >= total_pages else ""
-    pager = ['<div class="pager">']
-    pager.append(nav_link('上一页', '?module=' + module_code + '&page=' + str(page - 1), prev_cls))
-    for p in range(max(1, page - 2), min(total_pages, page + 2) + 1):
-        cls = "cur" if p == page else ""
-        pager.append(nav_link(str(p), '?module=' + module_code + '&page=' + str(p), cls))
-    pager.append(nav_link('下一页', '?module=' + module_code + '&page=' + str(page + 1), next_cls))
-    pager.append('<span>共 ' + str(total_pages) + ' 页 ｜ ƒ = 公式字段</span></div>')
-    st.markdown("".join(pager), unsafe_allow_html=True)
+    pg = st.columns([1, 1, 1, 1, 1, 4])
+    with pg[0]:
+        if st.button("上一页", disabled=page <= 1, key="pg_prev"):
+            goto(page=page - 1)
+    for idx, p in enumerate(range(max(1, page - 1), min(total_pages, page + 1) + 1)):
+        with pg[idx + 1]:
+            if st.button(("· " if p != page else "") + str(p),
+                         type="primary" if p == page else "secondary", key="pg_" + str(p)):
+                goto(page=p)
+    with pg[4]:
+        if st.button("下一页", disabled=page >= total_pages, key="pg_next"):
+            goto(page=page + 1)
+    with pg[5]:
+        st.markdown('<span class="count">共 ' + str(total_pages) + ' 页 ｜ ƒ = 公式字段</span>',
+                    unsafe_allow_html=True)
 
 # ---------- 新增 / 编辑 ----------
 if view == "new" or edit_id:
@@ -475,9 +479,10 @@ if view == "new" or edit_id:
                 st.error("记录不存在")
                 st.stop()
         st.markdown('<div class="card"><div class="sec-title">' + ("编辑记录" if is_edit else "新增记录")
-                    + '</div><span class="hint">公式字段与自动生成字段由系统维护，不可填写</span>'
-                    + nav_link('返回列表', '?module=' + module_code + '&view=data', 'nav')
-                    + '</div>', unsafe_allow_html=True)
+                    + '</div><span class="hint">公式字段与自动生成字段由系统维护，不可填写</span></div>',
+                    unsafe_allow_html=True)
+        if st.button("返回列表", key="back_list"):
+            goto(view="data", edit=None, delete=None)
         with st.form("form_" + module_code):
             values = {}
             chunks = [fields[i:i + 12] for i in range(0, len(fields), 12)]
@@ -506,9 +511,10 @@ if view == "import":
         st.warning("无导入权限")
     else:
         st.markdown('<div class="card"><div class="sec-title">Excel 导入</div>'
-                    '<span class="hint">模板仅包含「可导入」且非只读字段</span>'
-                    + nav_link('返回列表', '?module=' + module_code + '&view=data', 'nav')
-                    + '</div>', unsafe_allow_html=True)
+                    '<span class="hint">模板仅包含「可导入」且非只读字段</span></div>',
+                    unsafe_allow_html=True)
+        if st.button("返回列表", key="back_list_imp"):
+            goto(view="data", edit=None, delete=None)
         tpl = services.download_template(module_code)
         st.download_button("下载导入模板", data=tpl.getvalue(),
                            file_name=module["name"] + "-导入模板.xlsx",
@@ -552,9 +558,9 @@ if view == "fields":
              escape(f["format"] or ""), escape(f["validate"] or ""), escape(f.get("desc") or "")]
             for f in fields]
     st.markdown('<div class="card"><div class="sec-title">字段定义</div>'
-                '<span class="hint">来源：飞书《各模块字段定义》</span>'
-                + nav_link('返回列表', '?module=' + module_code + '&view=data', 'nav')
-                + '</div>', unsafe_allow_html=True)
+                '<span class="hint">来源：飞书《各模块字段定义》</span></div>', unsafe_allow_html=True)
+    if st.button("返回列表", key="back_list_fields"):
+        goto(view="data", edit=None, delete=None)
     st.markdown('<div class="card" style="padding:0;overflow-x:auto;">'
                 + html_table(["字段名称", "类型", "必填", "查询字段", "可导入", "格式要求", "校验", "说明"], rows)
                 + '</div>', unsafe_allow_html=True)
