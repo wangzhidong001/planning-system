@@ -1,0 +1,23 @@
+{
+  "name": "planning-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 5173"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "antd": "^5.22.5",
+    "@ant-design/icons": "^5.5.2",
+    "dayjs": "^1.11.13",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "vite": "^6.0.7",
+    "@vitejs/plugin-react": "^4.3.4"
+  }
+}
