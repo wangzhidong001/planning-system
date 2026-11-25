@@ -82,8 +82,16 @@ table.grid tr:hover td{background:#f5f9ff;}
 table.grid th .qmark{color:var(--primary);margin-left:3px;font-size:11px;}
 table.grid th[title]{cursor:help;}
 table.grid th[title]:hover{background:#e6f4ff;color:var(--primary);}
-/* 行内操作表格：表头与数据行均用 st.columns，保证列对齐 */
-div[data-testid="stHorizontalBlock"]:has(.rt-th),div[data-testid="stHorizontalBlock"]:has(.rt-td){gap:0!important;margin-bottom:0!important;}
+/* 行内操作表格：表头与数据行用 st.columns 固定列宽，整体横向滚动（表头与数据同步滚动） */
+.block-container{overflow-x:auto!important;}
+div[data-testid="stHorizontalBlock"]:has(.rt-th),div[data-testid="stHorizontalBlock"]:has(.rt-td){
+  gap:0!important;margin-bottom:0!important;flex-wrap:nowrap!important;
+  width:max-content!important;min-width:100%!important;
+}
+div[data-testid="stHorizontalBlock"]:has(.rt-th)>div[data-testid="stColumn"],
+div[data-testid="stHorizontalBlock"]:has(.rt-td)>div[data-testid="stColumn"]{
+  flex:0 0 108px!important;min-width:108px!important;max-width:108px!important;
+}
 .rt-th,.rt-td{background:#fff;font-size:12px;padding:9px 8px;border-bottom:1px solid #f0f0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .rt-th{background:#fafafa;color:#595959;font-weight:600;cursor:help;}
 .rt-th[title]:hover{background:#e6f4ff;color:var(--primary);}
