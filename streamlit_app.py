@@ -337,28 +337,10 @@ if module is None:
 
 fields = visible_fields(module_code, role)
 
-# ---------- 删除确认 ----------
-if delete_id:
-    st.markdown('<div class="card"><div class="sec-title">删除确认</div>'
-                '<p style="font-size:13px;color:#595959;">确定删除记录 ID ' + escape(delete_id)
-                + ' 吗？此操作不可撤销。</p></div>', unsafe_allow_html=True)
-    c1, c2, _ = st.columns([1, 1, 6])
-    with c1:
-        if st.button("确认删除", type="primary"):
-            res = services.delete_record(module_code, [int(delete_id)])
-            if res["ok"]:
-                st.success("已删除 " + str(res["deleted"]) + " 行")
-            else:
-                st.error("删除失败")
-            goto(delete=None)
-    with c2:
-        if st.button("取消"):
-            goto(delete=None)
-
 # ---------- 查询区 ----------
 queries = {}
 query_fields = [f for f in fields if f["query"]]
-if view == "data" and not delete_id:
+if view == "data":
     qcols = st.columns(min(3, len(query_fields)) + 2)
     for i, f in enumerate(query_fields):
         with qcols[i % len(qcols)]:
@@ -379,7 +361,7 @@ if view == "data" and not delete_id:
             goto(view="fields", edit=None, delete=None)
 
 # ---------- 数据列表 ----------
-if view == "data" and not delete_id:
+if view == "data":
     with st.spinner("加载中…"):
         result = services.list_records(module_code, role, user, page=page, page_size=20,
                                        field_queries=queries or None)
@@ -485,20 +467,13 @@ if view == "data" and not delete_id:
         st.markdown('<span class="count">共 ' + str(total_pages) + ' 页 ｜ ƒ = 公式字段</span>',
                     unsafe_allow_html=True)
 
-# ---------- 新增 / 编辑 ----------
-if view == "new" or edit_id:
-    is_edit = bool(edit_id)
-    if is_edit and "edit" not in buttons:
-        st.warning("无编辑权限")
+# ---------- 新增（整页，编辑/删除已改为模态对话框） ----------
+if view == "new":
+    if "create" not in buttons:
+        st.warning("无新增权限")
     else:
-        raw = None
-        if is_edit:
-            raw = next((r for r in db.all_rows(module_code) if r["_id"] == int(edit_id)), None)
-            if raw is None:
-                st.error("记录不存在")
-                st.stop()
-        st.markdown('<div class="card"><div class="sec-title">' + ("编辑记录" if is_edit else "新增记录")
-                    + '</div><span class="hint">公式字段与自动生成字段由系统维护，不可填写</span></div>',
+        st.markdown('<div class="card"><div class="sec-title">新增记录</div>'
+                    '<span class="hint">公式字段与自动生成字段由系统维护，不可填写</span></div>',
                     unsafe_allow_html=True)
         if st.button("返回列表", key="back_list"):
             goto(view="data", edit=None, delete=None)
@@ -510,14 +485,13 @@ if view == "new" or edit_id:
             for tab, chunk in zip(tabs, chunks):
                 with tab:
                     for f in chunk:
-                        current = raw.get(f["key"]) if raw else None
+                        current = None
                         values[f["key"]] = render_input(
-                            f, current, ("edit" if is_edit else "new") + "_" + module_code + "_" + f["key"])
+                            f, current, "new_" + module_code + "_" + f["key"])
             ok = st.form_submit_button("保存", type="primary")
         if ok:
             body = {k: v for k, v in values.items() if v not in (None, "")}
-            res = (services.update_record(module_code, int(edit_id), body, role) if is_edit
-                   else services.create_record(module_code, body, role))
+            res = services.create_record(module_code, body, role)
             if res["ok"]:
                 st.success("保存成功")
                 goto(view="data", edit=None)
@@ -583,3 +557,63 @@ if view == "fields":
     st.markdown('<div class="card" style="padding:0;overflow-x:auto;">'
                 + html_table(["字段名称", "类型", "必填", "查询字段", "可导入", "格式要求", "校验", "说明"], rows)
                 + '</div>', unsafe_allow_html=True)
+
+# ---------- 模态对话框：编辑 / 删除确认 ----------
+@st.dialog("编辑记录", width="large")
+def _edit_dialog(code, rid, flds, current_role):
+    st.caption("公式字段与自动生成字段由系统维护，不可填写")
+    raw = next((r for r in db.all_rows(code) if r["_id"] == int(rid)), None)
+    if raw is None:
+        st.error("记录不存在或已被删除")
+        if st.button("关闭", key="dlg_missing_close"):
+            goto(edit=None)
+        return
+    with st.form("dlg_edit_" + code):
+        values = {}
+        chunks = [flds[i:i + 12] for i in range(0, len(flds), 12)]
+        tabs = st.tabs([f"字段 {i * 12 + 1}-{min((i + 1) * 12, len(flds))}"
+                        for i in range(len(chunks))])
+        for tab, chunk in zip(tabs, chunks):
+            with tab:
+                for f in chunk:
+                    values[f["key"]] = render_input(
+                        f, raw.get(f["key"]), "dlg_edit_" + code + "_" + f["key"])
+        cs = st.columns([1, 4, 1])
+        with cs[0]:
+            cancel = st.form_submit_button("取消")
+        with cs[2]:
+            save = st.form_submit_button("保存", type="primary")
+    if cancel:
+        goto(edit=None)
+    if save:
+        body = {k: v for k, v in values.items() if v not in (None, "")}
+        res = services.update_record(code, int(rid), body, current_role)
+        if res["ok"]:
+            st.success("保存成功")
+            st.rerun()
+        else:
+            st.error("校验未通过：\n- " + "\n- ".join(res["errors"]))
+
+
+@st.dialog("删除确认")
+def _delete_dialog(code, rid):
+    st.write("确定删除记录 ID " + str(rid) + " 吗？此操作不可撤销。")
+    c1, c2, _ = st.columns([1, 1, 3])
+    with c1:
+        if st.button("确认删除", type="primary", key="dlg_del_confirm"):
+            res = services.delete_record(code, [int(rid)])
+            if res["ok"]:
+                st.success("已删除 " + str(res["deleted"]) + " 行")
+                goto(delete=None)
+            else:
+                st.error("删除失败")
+    with c2:
+        if st.button("取消", key="dlg_del_cancel"):
+            goto(delete=None)
+
+
+# 数据页且带 edit/delete 参数时弹出对话框（列表作为背景保留）
+if view == "data" and edit_id and "edit" in buttons:
+    _edit_dialog(module_code, edit_id, fields, role)
+elif view == "data" and delete_id and "delete" in buttons:
+    _delete_dialog(module_code, delete_id)
