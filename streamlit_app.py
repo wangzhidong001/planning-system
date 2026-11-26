@@ -152,17 +152,46 @@ def visible_fields(code, role):
     return [f for f in registry.fields_of(code) if auth.field_visible(code, f["key"], role)]
 
 
-def render_input(f, current, widget_key):
-    name, key, typ = f["name"], f["key"], f["type"]
+def render_input(f, current, widget_key, code=None, row=None, user_name="", is_edit=False):
+    """渲染单个字段输入控件。
+    - 只读字段（formula/auto_id）：显示最终结果值（公式引擎计算）并置灰，不写入提交体。
+    - 数字字段：用 text_input 展示「格式要求」格式化后的值（如 6,208.10），
+      支持键盘/粘贴，去掉 number_input 的 +/- 步进按钮；提交时解析回数值。
+    """
+    name, typ = f["name"], f["type"]
+    fmt = f.get("format") or ""
     if typ in ("formula", "auto_id"):
-        st.text_input(name, value="系统计算/发号，只读", disabled=True, key=widget_key)
+        st.session_state.pop(widget_key, None)  # 强制使用本次计算出的展示值
+        if typ == "auto_id":
+            shown = "" if current in (None, "") else str(current)
+            help_txt = "系统发号，自动生成，不可编辑"
+        elif is_edit and code and row is not None:
+            from backend.app import formula_engine
+            v, status = formula_engine.compute_field(code, f, row, user_name)
+            shown = (format_value(v, fmt) if status == "OK" and v not in (None, "")
+                     else ("不适用" if status and status != "OK" else ""))
+            help_txt = "公式字段，系统自动计算，不可编辑"
+        else:
+            shown, help_txt = "", "公式字段，保存后系统自动计算"
+        st.text_input(name, value=shown, disabled=True, key=widget_key, help=help_txt)
         return None
-    if typ == "integer":
-        val = int(current) if current not in (None, "") else None
-        return st.number_input(name, value=val, step=1, key=widget_key)
-    if typ == "number":
-        val = float(current) if current not in (None, "") else None
-        return st.number_input(name, value=val, format="%.6f", key=widget_key)
+    if typ in ("integer", "number"):
+        shown = format_value(current, fmt) if current not in (None, "") else ""
+        txt = st.text_input(name, value=shown, key=widget_key,
+                            placeholder=(f.get("desc") or "")[:80])
+        if txt in (None, ""):
+            return None
+        cleaned = str(txt).strip().replace(",", "").replace("，", "")
+        pct = "百分比" in fmt
+        if pct:
+            cleaned = cleaned.rstrip("%")
+        try:
+            num = float(cleaned)
+        except (TypeError, ValueError):
+            return txt  # 非数值交由后端校验层提示
+        if pct:
+            num = num / 100
+        return int(num) if typ == "integer" else num
     if f["enum"]:
         opts = [""] + [str(e) for e in f["enum"]]
         idx = opts.index(str(current)) if current is not None and str(current) in opts else 0
@@ -569,7 +598,8 @@ if view == "fields":
 # ---------- 模态对话框：编辑 / 删除确认 ----------
 @st.dialog("编辑记录", width="large")
 def _edit_dialog(code, rid, flds, current_role):
-    st.caption("公式字段与自动生成字段由系统维护，不可填写")
+    st.caption("只读字段显示系统计算结果，不可编辑；数字字段按格式要求显示，可直接输入或粘贴")
+    current_user_name = (st.session_state.get("user") or {}).get("name", "")
     raw = next((r for r in db.all_rows(code) if r["_id"] == int(rid)), None)
     if raw is None:
         st.error("记录不存在或已被删除")
@@ -585,7 +615,8 @@ def _edit_dialog(code, rid, flds, current_role):
             with tab:
                 for f in chunk:
                     values[f["key"]] = render_input(
-                        f, raw.get(f["key"]), "dlg_edit_" + code + "_" + f["key"])
+                        f, raw.get(f["key"]), "dlg_edit_" + code + "_" + f["key"],
+                        code=code, row=raw, user_name=current_user_name, is_edit=True)
         cs = st.columns([1, 4, 1])
         with cs[0]:
             cancel = st.form_submit_button("取消")
